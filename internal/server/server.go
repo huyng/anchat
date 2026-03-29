@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/mitchellh/mapstructure"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -361,6 +362,69 @@ func (s *Server) handleStatus(ctx context.Context, userID string, cmdData map[st
 	}
 }
 
+
+// handleChannelSend handles channel messages
+func (s *Server) handleChannelSend(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
+	var cmd protocol.ChannelSendCommand
+	if err := mapstructure.Decode(cmdData, &cmd); err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Invalid channel_send command: %v", err)}
+	}
+
+	// Validate required fields
+	if cmd.Channel == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'channel' field"}
+	}
+	if cmd.Ciphertext == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'ciphertext' field"}
+	}
+	if cmd.Nonce == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'nonce' field"}
+	}
+
+	// Verify user is member of channel
+	_, err := s.db.GetChannelMember(ctx, cmd.Channel, userID)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Not a member of channel: %s", cmd.Channel)}
+	}
+
+	// Decode ciphertext and nonce
+	ciphertext, err := protocol.DecodeBase64URL(cmd.Ciphertext)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Invalid ciphertext encoding: %v", err)}
+	}
+
+	// Store channel message
+	msgID, err := s.db.StoreMessage(ctx, &models.Message{
+		ChannelID:     &cmd.Channel,
+		RecipientID:   nil, // Channel message (not private)
+		SenderKeyHash: db.HashKey([]byte(userID)),
+		EncryptedBlob:  ciphertext,
+		Signature:      nil, // TODO: Add Ed25519 signature support
+		Timestamp:      time.Now(),
+	})
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Failed to store message: %v", err)}
+	}
+
+	// Broadcast to all members via SSE
+	members, err := s.db.GetChannelMembers(ctx, cmd.Channel)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Failed to get channel members: %v", err)}
+	}
+
+	event := protocol.ChannelMessageEvent{
+		Channel:    cmd.Channel,
+		From:       userID,
+		Ciphertext: cmd.Ciphertext, // Keep as base64url for client
+		Nonce:      cmd.Nonce,
+		Timestamp:  time.Now().Unix(),
+	}
+	for _, member := range members {
+		s.notifyUser(member.UserID, event)
+	}
+
+	return protocol.CommandResponse{Status: "ok", CommandID: msgID}
+}
 func (s *Server) handleCommandByType(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
 	cmdType, ok := cmdData["cmd"].(string)
 	if !ok {
