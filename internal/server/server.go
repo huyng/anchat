@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/mitchellh/mapstructure"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -308,32 +309,68 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleCommandByType routes commands to their handlers
 
+
 // handleChannelSend handles channel messages
 func (s *Server) handleChannelSend(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
-	// TODO: Implement channel send
-	return protocol.CommandResponse{
-		Status: "error",
-		Error:  "Not yet implemented",
+	var cmd protocol.ChannelSendCommand
+	if err := mapstructure.Decode(cmdData, &cmd); err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Invalid channel_send command: %v", err)}
 	}
-}
 
-// handleChannelJoin handles joining a channel
-func (s *Server) handleChannelJoin(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
-	// TODO: Implement channel join
-	return protocol.CommandResponse{
-		Status: "error",
-		Error:  "Not yet implemented",
+	// Validate required fields
+	if cmd.Channel == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'channel' field"}
 	}
-}
-
-// handleChannelCreate handles creating a new channel
-func (s *Server) handleChannelCreate(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
-	return protocol.CommandResponse{
-		Status: "error",
-		Error:  "Not yet implemented",
+	if cmd.Ciphertext == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'ciphertext' field"}
 	}
-}
+	if cmd.Nonce == "" {
+		return protocol.CommandResponse{Status: "error", Error: "Missing 'nonce' field"}
+	}
 
+	// Verify user is member of channel
+	_, err := s.db.GetChannelMember(ctx, cmd.Channel, userID)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Not a member of channel: %s", cmd.Channel)}
+	}
+
+	// Store channel message
+	ciphertext, err := protocol.DecodeBase64URL(cmd.Ciphertext)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Invalid ciphertext encoding: %v", err)}
+	}
+
+	msgID, err := s.db.StoreMessage(ctx, &models.Message{
+		ChannelID:     &cmd.Channel,
+		RecipientID:   nil, // Channel message (not private)
+		SenderKeyHash: db.HashKey([]byte(userID)),
+		EncryptedBlob:  ciphertext,
+		Signature:      nil,
+		Timestamp:      time.Now(),
+	})
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Failed to store message: %v", err)}
+	}
+
+	// Broadcast to all members via SSE
+	members, err := s.db.GetChannelMembers(ctx, cmd.Channel)
+	if err != nil {
+		return protocol.CommandResponse{Status: "error", Error: fmt.Sprintf("Failed to get channel members: %v", err)}
+	}
+
+	event := protocol.ChannelMessageEvent{
+		Channel:    cmd.Channel,
+		From:       userID,
+		Ciphertext: cmd.Ciphertext,
+		Nonce:      cmd.Nonce,
+		Timestamp:  time.Now().Unix(),
+	}
+	for _, member := range members {
+		s.notifyUser(member.UserID, event)
+	}
+
+	return protocol.CommandResponse{Status: "ok", CommandID: msgID}
+}
 // handleChannelInvite handles inviting a user to a channel
 func (s *Server) handleChannelInvite(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
 	// TODO: Implement channel invite
