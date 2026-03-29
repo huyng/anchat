@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	"github.com/huyng/anchat/internal/db"
 	"github.com/huyng/anchat/internal/models"
@@ -43,7 +44,7 @@ func (s *Server) handleMsg(ctx context.Context, userID string, cmdData map[strin
 	}
 
 	// Get recipient's X25519 public key
-	recipient, err := s.authService.GetUserByUsername(ctx, models.HashUsername(cmd.To))
+	recipient, err := s.db.GetUserByUsername(ctx, models.HashUsername(cmd.To))
 	if err != nil {
 		return protocol.CommandResponse{
 			Status: "error",
@@ -72,10 +73,10 @@ func (s *Server) handleMsg(ctx context.Context, userID string, cmdData map[strin
 	// Server cannot decrypt (E2E), just stores and forwards
 	msgID, err := s.db.StoreMessage(ctx, &models.Message{
 		RecipientID:   &recipient.UserID,
-		SenderKeyHash: models.HashKey([]byte(userID)), // Blind index
+		SenderKeyHash: db.HashKey(recipient.PubkeyX25519),
 		EncryptedBlob:  ciphertext,
 		Signature:      nil, // TODO: Add Ed25519 signature support
-		Timestamp:      s.time.Now(),
+		Timestamp:      time.Now(),
 	})
 	if err != nil {
 		return protocol.CommandResponse{
@@ -91,7 +92,7 @@ func (s *Server) handleMsg(ctx context.Context, userID string, cmdData map[strin
 		From:       userID,
 		Ciphertext: cmd.Ciphertext, // Keep as base64url for client
 		Nonce:      cmd.Nonce,
-		Timestamp:  s.time.Now().Unix(),
+		Timestamp:  time.Now().Unix(),
 	})
 
 	return protocol.CommandResponse{
