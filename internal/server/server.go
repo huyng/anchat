@@ -309,15 +309,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleCommandByType routes commands to their handlers
 
-// handleChannelSend handles channel messages
-func (s *Server) handleChannelSend(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
-	// TODO: Implement channel send
-	return protocol.CommandResponse{
-		Status: "error",
-		Error:  "Not yet implemented",
-	}
-}
-
 // handleChannelJoin handles joining a channel
 func (s *Server) handleChannelJoin(ctx context.Context, userID string, cmdData map[string]interface{}) protocol.CommandResponse {
 	// TODO: Implement channel join
