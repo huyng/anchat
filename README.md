@@ -194,8 +194,8 @@ go build -o anchat-server ./cmd/server
 head -c 32 /dev/urandom | base64 > server_storage.key
 
 # Run with SQLite
-export DARKIRC_DB_URL="anchat.db"
-export DARKIRC_STORAGE_KEY=$(cat server_storage.key)
+export ANCHAT_DB_URL="anchat.db"
+export ANCHAT_STORAGE_KEY=$(cat server_storage.key)
 ./anchat-server --port 8443
 ```
 

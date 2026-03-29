@@ -531,7 +531,7 @@ Clients can upgrade to WebSocket for bidirectional communication:
 ```
 GET /api/v1/websocket
 Upgrade: websocket
-Sec-WebSocket-Protocol: darkirc.json
+Sec-WebSocket-Protocol: anchat.json
 ```
 
 Same JSON message format as SSE + POST, but over one WebSocket connection.

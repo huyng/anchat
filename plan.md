@@ -1,8 +1,8 @@
-DarkIRC – Modern, Private, Secure IRC Alternative (Go Edition)
+AnChat – Modern, Private, Secure IRC Alternative (Go Edition)
 
 Overview
 
-DarkIRC is a modern chat system for thousands of concurrent users that prioritizes privacy by design. The server never has access to plaintext messages—only encrypted blobs. Transport is TLS-only, stored data is encrypted at rest, and end-to-end encryption is the default for private messages.
+AnChat is a modern chat system for thousands of concurrent users that prioritizes privacy by design. The server never has access to plaintext messages—only encrypted blobs. Transport is TLS-only, stored data is encrypted at rest, and end-to-end encryption is the default for private messages.
 
 Federation is not in the initial version to keep setup simple, but the protocol is designed to add it later.
 
@@ -21,7 +21,7 @@ Trade-off: Go’s GC adds slight latency vs Rust, but for chat (non‑real‑tim
 Core Architecture
 
 text
-[CLI Client] <--TLS--> [DarkIRC Server (Go)] <--TLS--> [CLI Client]
+[CLI Client] <--TLS--> [AnChat Server (Go)] <--TLS--> [CLI Client]
                               |
                     [Encrypted at rest DB]
 Data Flow (Private Message)
@@ -132,7 +132,7 @@ Client Implementation (CLI Reference)
 
 The CLI client (Go + crypto/ed25519, golang.org/x/crypto/nacl/box) must:
 
-Generate & store an X25519 + Ed25519 keypair on first run (~/.darkirc/identity.json).
+Generate & store an X25519 + Ed25519 keypair on first run (~/.anchat/identity.json).
 On login, send public keys to server (bound to password auth).
 Maintain a local encrypted store (SQLite + key derived from password using scrypt) for:
 
@@ -143,7 +143,7 @@ Provide commands: /msg, /join, /create, /invite, /sync, /search "text" (local on
 CLI example:
 
 text
-$ darkirc connect chat.example.com --user alice
+$ anchat connect chat.example.com --user alice
 Password: 
 Connected. Channel #rust: 3 members.
 [#rust] bob: hey alice, did you see the new async runtime?
@@ -177,20 +177,20 @@ Setup & Deployment (for Admin)
 Requirements: Go 1.21+, SQLite (or PostgreSQL), TLS certificate.
 
 bash
-git clone https://github.com/darkirc/darkirc
-cd darkirc
-go build -o darkirc-server ./cmd/server
+git clone https://github.com/anchat/anchat
+cd anchat
+go build -o anchat-server ./cmd/server
 
 # Generate server at-rest encryption key (32 bytes)
 head -c 32 /dev/urandom | base64 > server_storage.key
 
 # Run with env vars
-export DARKIRC_DB_URL="sqlite:darkirc.db?_pragma=journal_mode(WAL)"
-export DARKIRC_STORAGE_KEY=$(cat server_storage.key)
-export DARKIRC_TLS_CERT=fullchain.pem
-export DARKIRC_TLS_KEY=privkey.pem
+export ANCHAT_DB_URL="sqlite:anchat.db?_pragma=journal_mode(WAL)"
+export ANCHAT_STORAGE_KEY=$(cat server_storage.key)
+export ANCHAT_TLS_CERT=fullchain.pem
+export ANCHAT_TLS_KEY=privkey.pem
 
-./darkirc-server --port 6697
+./anchat-server --port 6697
 Future Extensions (Backward-Compatible)
 
 Federation: Add server-to-server TLS + signed envelopes (gRPC or HTTPS).
@@ -281,7 +281,7 @@ Add this to the Protocol section:
 Transport: WebSocket over TLS (WSS)
 
 All communication uses WebSocket (RFC 6455) over TLS 1.3 on port 443 (or 6697 as fallback).
-The WebSocket subprotocol is darkirc.json. Each message is a text frame containing one line‑delimited JSON object.
+The WebSocket subprotocol is anchat.json. Each message is a text frame containing one line‑delimited JSON object.
 
 Why not raw TCP?
 – Works in browsers without a proxy.
@@ -290,12 +290,12 @@ Why not raw TCP?
 – Minimal overhead after handshake.
 
 Handshake example (browser):
-new WebSocket("wss://chat.example.com/darkirc", "darkirc.json")
+new WebSocket("wss://chat.example.com/anchat", "anchat.json")
 
 Go CLI client example:
 
 go
-conn, _, _ := websocket.Dial(ctx, "wss://chat.example.com/darkirc", &websocket.DialOptions{Subprotocols: []string{"darkirc.json"}})
+conn, _, _ := websocket.Dial(ctx, "wss://chat.example.com/anchat", &websocket.DialOptions{Subprotocols: []string{"anchat.json"}})
 conn.Write(context.Background(), websocket.MessageText, []byte(`{"cmd":"auth",...}`))
 Do you want me to rewrite the full README with WebSocket instead of raw TLS, or keep the original raw TLS design?
 I prefer the basic protocol has http/2 sse with the option of using web sockets
@@ -303,11 +303,11 @@ Perfect choice. HTTP/2 + SSE for server-to-client streaming + HTTP/2 POST for cl
 
 Here is the final README revised for this hybrid approach.
 
-DarkIRC – Modern, Private, Secure IRC Alternative (Go Edition)
+AnChat – Modern, Private, Secure IRC Alternative (Go Edition)
 
 Overview
 
-DarkIRC is a modern chat system for thousands of concurrent users that prioritizes privacy by design. The server never has access to plaintext messages—only encrypted blobs. Transport is TLS-only, stored data is encrypted at rest, and end-to-end encryption is the default for private messages.
+AnChat is a modern chat system for thousands of concurrent users that prioritizes privacy by design. The server never has access to plaintext messages—only encrypted blobs. Transport is TLS-only, stored data is encrypted at rest, and end-to-end encryption is the default for private messages.
 
 Federation is not in the initial version to keep setup simple, but the protocol is designed to add it later.
 
@@ -323,7 +323,7 @@ Memory safe with garbage collection.
 Core Architecture
 
 text
-[CLI/Web/Mobile Client] --HTTP/2 POST--> [DarkIRC Server (Go)] --SSE/WebSocket--> [Client]
+[CLI/Web/Mobile Client] --HTTP/2 POST--> [AnChat Server (Go)] --SSE/WebSocket--> [Client]
                                           |
                                 [Encrypted at rest DB]
 Bidirectional Communication Strategy
@@ -441,7 +441,7 @@ json
 5. OPTIONAL: GET /websocket – WebSocket Upgrade
 
 For clients that prefer a single bidirectional channel.
-Subprotocol: darkirc.json
+Subprotocol: anchat.json
 Same JSON messages as SSE + POST, but over one WebSocket.
 
 Handshake:
@@ -449,7 +449,7 @@ Handshake:
 text
 GET /websocket
 Upgrade: websocket
-Sec-WebSocket-Protocol: darkirc.json
+Sec-WebSocket-Protocol: anchat.json
 Storage (Server)
 
 Using SQLite with modernc.org/sqlite or PostgreSQL.
@@ -497,7 +497,7 @@ Client Implementation (CLI Reference)
 
 The CLI client must:
 
-Generate & store X25519 + Ed25519 keypair (~/.darkirc/identity.json).
+Generate & store X25519 + Ed25519 keypair (~/.anchat/identity.json).
 On startup: POST /auth → get session token.
 Open SSE connection to /listen in a goroutine.
 Send commands via POST /command.
@@ -505,7 +505,7 @@ Maintain local encrypted SQLite store for history.
 CLI example:
 
 bash
-$ darkirc connect chat.example.com --user alice
+$ anchat connect chat.example.com --user alice
 Password: 
 Connected. Session: eyJhbG...
 [#rust] bob: hey alice, did you see the new async runtime?
@@ -563,20 +563,20 @@ Setup & Deployment
 Requirements: Go 1.21+, TLS certificate.
 
 bash
-git clone https://github.com/darkirc/darkirc
-cd darkirc
-go build -o darkirc-server ./cmd/server
+git clone https://github.com/anchat/anchat
+cd anchat
+go build -o anchat-server ./cmd/server
 
 # Generate server at-rest encryption key
 head -c 32 /dev/urandom | base64 > server_storage.key
 
 # Run
-export DARKIRC_DB_URL="sqlite:darkirc.db?_pragma=journal_mode(WAL)"
-export DARKIRC_STORAGE_KEY=$(cat server_storage.key)
-export DARKIRC_TLS_CERT=fullchain.pem
-export DARKIRC_TLS_KEY=privkey.pem
+export ANCHAT_DB_URL="sqlite:anchat.db?_pragma=journal_mode(WAL)"
+export ANCHAT_STORAGE_KEY=$(cat server_storage.key)
+export ANCHAT_TLS_CERT=fullchain.pem
+export ANCHAT_TLS_KEY=privkey.pem
 
-./darkirc-server --port 443 --sse-path /api/v1/listen --command-path /api/v1/command
+./anchat-server --port 443 --sse-path /api/v1/listen --command-path /api/v1/command
 Why HTTP/2 + SSE + Optional WebSocket?
 
 Protocol	Pros	Cons

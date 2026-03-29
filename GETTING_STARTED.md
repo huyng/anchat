@@ -73,17 +73,17 @@ sudo certbot certonly --standalone -d chat.example.com
 
 **Development mode (HTTP, no TLS):**
 ```bash
-export DARKIRC_DB_URL="anchat.db"
-export DARKIRC_STORAGE_KEY=$(cat server_storage.key)
+export ANCHAT_DB_URL="anchat.db"
+export ANCHAT_STORAGE_KEY=$(cat server_storage.key)
 ./anchat-server --port 8443
 ```
 
 **Production mode (HTTPS with TLS):**
 ```bash
-export DARKIRC_DB_URL="/var/lib/anchat/anchat.db"
-export DARKIRC_STORAGE_KEY=$(cat /etc/anchat/storage.key)
-export DARKIRC_TLS_CERT="/etc/ssl/fullchain.pem"
-export DARKIRC_TLS_KEY="/etc/ssl/privkey.pem"
+export ANCHAT_DB_URL="/var/lib/anchat/anchat.db"
+export ANCHAT_STORAGE_KEY=$(cat /etc/anchat/storage.key)
+export ANCHAT_TLS_CERT="/etc/ssl/fullchain.pem"
+export ANCHAT_TLS_KEY="/etc/ssl/privkey.pem"
 ./anchat-server --port 443
 ```
 
