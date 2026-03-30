@@ -60,6 +60,7 @@ func (s *Server) Start(addr string) error {
 	mux.HandleFunc("/api/v1/listen", s.handleListen)
 
 	// Command endpoints
+	mux.HandleFunc("/api/v1/auth/challenge", s.handleAuthChallenge)
 	mux.HandleFunc("/api/v1/auth", s.handleAuth)
 	mux.HandleFunc("/api/v1/command", s.handleCommand)
 	mux.HandleFunc("/api/v1/command/batch", s.handleBatchCommand)
@@ -150,7 +151,37 @@ func (s *Server) handleListen(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAuth handles user authentication
+// handleAuthChallenge handles challenge requests for authentication
+func (s *Server) handleAuthChallenge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req protocol.AuthChallengeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Generate challenge
+	challenge, err := s.authService.GenerateChallenge()
+	if err != nil {
+		log.Printf("Failed to generate challenge: %v", err)
+		http.Error(w, "Failed to generate challenge", http.StatusInternalServerError)
+		return
+	}
+
+	response := protocol.AuthChallengeResponse{
+		Status:    "ok",
+		Challenge: challenge,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleAuth handles user authentication (challenge-response)
 func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -163,21 +194,28 @@ func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decode public keys
-	pubkeyEd25519, err := models.DecodePubkey(cmd.PubkeyEd25519)
-	if err != nil {
-		http.Error(w, "Invalid Ed25519 public key", http.StatusBadRequest)
-		return
+	// Decode public keys (optional for returning users, required for new accounts)
+	var pubkeyEd25519, pubkeyX25519 []byte
+	var err error
+
+	if cmd.PubkeyEd25519 != "" {
+		pubkeyEd25519, err = models.DecodePubkey(cmd.PubkeyEd25519)
+		if err != nil {
+			http.Error(w, "Invalid Ed25519 public key", http.StatusBadRequest)
+			return
+		}
 	}
 
-	pubkeyX25519, err := models.DecodePubkey(cmd.PubkeyX25519)
-	if err != nil {
-		http.Error(w, "Invalid X25519 public key", http.StatusBadRequest)
-		return
+	if cmd.PubkeyX25519 != "" {
+		pubkeyX25519, err = models.DecodePubkey(cmd.PubkeyX25519)
+		if err != nil {
+			http.Error(w, "Invalid X25519 public key", http.StatusBadRequest)
+			return
+		}
 	}
 
 	ctx := r.Context()
-	session, err := s.authService.AuthenticateUser(ctx, cmd.User, cmd.Password, pubkeyEd25519, pubkeyX25519)
+	session, err := s.authService.AuthenticateWithSignature(ctx, cmd.User, cmd.Challenge, cmd.Signature, pubkeyEd25519, pubkeyX25519)
 	if err != nil {
 		log.Printf("Auth failed for user %s: %v", cmd.User, err)
 		http.Error(w, "Authentication failed", http.StatusUnauthorized)

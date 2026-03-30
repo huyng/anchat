@@ -11,6 +11,7 @@ type CommandType string
 
 const (
 	CmdAuth           CommandType = "auth"
+	CmdAuthChallenge  CommandType = "auth_challenge"
 	CmdBotAuth        CommandType = "bot_auth"
 	CmdMsg            CommandType = "msg"
 	CmdChannelCreate  CommandType = "channel_create"
@@ -38,13 +39,26 @@ type BaseCommand struct {
 	Cmd CommandType `json:"cmd"`
 }
 
-// AuthCommand is the client authentication request
+// AuthCommand is the client authentication request (challenge-response)
 type AuthCommand struct {
 	Cmd          CommandType `json:"cmd"`
-	User         string     `json:"user"`
-	Password     string     `json:"password"`
-	PubkeyEd25519 string    `json:"pubkey_ed25519"`
-	PubkeyX25519 string    `json:"pubkey_x25519"`
+	User         string      `json:"user"`
+	Signature    string      `json:"signature"`    // Ed25519 signature of challenge
+	Challenge    string      `json:"challenge"`    // The challenge being signed
+	PubkeyEd25519 string     `json:"pubkey_ed25519"` // Required for new accounts
+	PubkeyX25519 string      `json:"pubkey_x25519"`  // Required for new accounts
+}
+
+// AuthChallengeRequest is sent by client to request a challenge
+type AuthChallengeRequest struct {
+	Cmd  CommandType `json:"cmd"`
+	User string      `json:"user"`
+}
+
+// AuthChallengeResponse is sent by server with the challenge
+type AuthChallengeResponse struct {
+	Status    string `json:"status"`
+	Challenge string `json:"challenge"` // base64url encoded random bytes
 }
 
 // BotAuthCommand is for bot authentication
@@ -176,6 +190,9 @@ func ParseCommand(data []byte) (interface{}, error) {
 	switch base.Cmd {
 	case CmdAuth:
 		var cmd AuthCommand
+		return &cmd, json.Unmarshal(data, &cmd)
+	case CmdAuthChallenge:
+		var cmd AuthChallengeRequest
 		return &cmd, json.Unmarshal(data, &cmd)
 	case CmdBotAuth:
 		var cmd BotAuthCommand

@@ -51,7 +51,6 @@ func (db *DB) initSchema() error {
 		username_hash BLOB NOT NULL,
 		pubkey_ed25519 BLOB NOT NULL,
 		pubkey_x25519 BLOB NOT NULL,
-		password_hash BLOB NOT NULL,
 		session_token_hash BLOB,
 		created_at INTEGER NOT NULL
 	);
@@ -108,15 +107,14 @@ func (db *DB) initSchema() error {
 // CreateUser creates a new user account
 func (db *DB) CreateUser(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (user_id, username_hash, pubkey_ed25519, pubkey_x25519, password_hash, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO users (user_id, username_hash, pubkey_ed25519, pubkey_x25519, created_at)
+		VALUES (?, ?, ?, ?, ?)
 	`
 	_, err := db.ExecContext(ctx, query,
 		user.UserID,
 		user.UsernameHash,
 		user.PubkeyEd25519,
 		user.PubkeyX25519,
-		user.PasswordHash,
 		user.CreatedAt.Unix(),
 	)
 	return err
@@ -125,7 +123,7 @@ func (db *DB) CreateUser(ctx context.Context, user *models.User) error {
 // GetUserByUsername retrieves a user by username hash
 func (db *DB) GetUserByUsername(ctx context.Context, usernameHash []byte) (*models.User, error) {
 	query := `
-		SELECT user_id, username_hash, pubkey_ed25519, pubkey_x25519, password_hash, session_token_hash, created_at
+		SELECT user_id, username_hash, pubkey_ed25519, pubkey_x25519, session_token_hash, created_at
 		FROM users
 		WHERE username_hash = ?
 	`
@@ -136,7 +134,6 @@ func (db *DB) GetUserByUsername(ctx context.Context, usernameHash []byte) (*mode
 		&user.UsernameHash,
 		&user.PubkeyEd25519,
 		&user.PubkeyX25519,
-		&user.PasswordHash,
 		&sessionTokenHash,
 		&user.CreatedAt,
 	)
@@ -150,7 +147,7 @@ func (db *DB) GetUserByUsername(ctx context.Context, usernameHash []byte) (*mode
 // GetUserBySessionToken retrieves a user by session token
 func (db *DB) GetUserBySessionToken(ctx context.Context, sessionTokenHash []byte) (*models.User, error) {
 	query := `
-		SELECT user_id, username_hash, pubkey_ed25519, pubkey_x25519, password_hash, session_token_hash, created_at
+		SELECT user_id, username_hash, pubkey_ed25519, pubkey_x25519, session_token_hash, created_at
 		FROM users
 		WHERE session_token_hash = ?
 	`
@@ -160,7 +157,6 @@ func (db *DB) GetUserBySessionToken(ctx context.Context, sessionTokenHash []byte
 		&user.UsernameHash,
 		&user.PubkeyEd25519,
 		&user.PubkeyX25519,
-		&user.PasswordHash,
 		&user.SessionTokenHash,
 		&user.CreatedAt,
 	)

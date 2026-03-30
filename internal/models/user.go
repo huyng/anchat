@@ -11,10 +11,9 @@ import (
 type User struct {
 	UserID         string     `json:"user_id" db:"user_id"`
 	UsernameHash   []byte     `json:"-" db:"username_hash"`       // SHA-256 of normalized username
-	PubkeyEd25519  []byte     `json:"-" db:"pubkey_ed25519"`      // for auth and key exchange
-	PubkeyX25519  []byte     `json:"-" db:"pubkey_x25519"`       // for nacl/box encryption
-	PasswordHash   []byte     `json:"-" db:"password_hash"`        // argon2id
-	SessionTokenHash []byte    `json:"-" db:"session_token_hash"`   // SHA-256 of active token
+	PubkeyEd25519  []byte     `json:"-" db:"pubkey_ed25519"`      // for auth (signature verification)
+	PubkeyX25519   []byte     `json:"-" db:"pubkey_x25519"`       // for nacl/box encryption
+	SessionTokenHash []byte    `json:"-" db:"session_token_hash"`  // SHA-256 of active token
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 }
 

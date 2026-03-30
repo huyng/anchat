@@ -25,68 +25,58 @@ func NewAuthService(database *db.DB) *AuthService {
 // Session represents an active user session
 type Session struct {
 	UserID    string
-	Token      string
+	Token     string
 	ExpiresAt time.Time
 }
 
-// RegisterUser registers a new user account
-func (a *AuthService) RegisterUser(ctx context.Context, username, password string, pubkeyEd25519, pubkeyX25519 []byte) (*models.User, error) {
-	// Generate salt and hash password
-	salt, err := crypto.GenerateSalt()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate salt: %w", err)
+// GenerateChallenge creates a random challenge for authentication
+func (a *AuthService) GenerateChallenge() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate challenge: %w", err)
 	}
-	passwordHash, err := crypto.HashPassword(password, salt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	// Store salt with password hash (prepend salt to hash)
-	passwordHashWithSalt := append(salt, passwordHash...)
-
-	// Check if username already exists
-	usernameHash := models.HashUsername(username)
-	existing, err := a.db.GetUserByUsername(ctx, usernameHash)
-	if err == nil && existing != nil {
-		return nil, fmt.Errorf("username already taken")
-	}
-
-	// Create user
-	user := &models.User{
-		UserID:        generateUserID(),
-		UsernameHash:   usernameHash,
-		PubkeyEd25519:  pubkeyEd25519,
-		PubkeyX25519:  pubkeyX25519,
-		PasswordHash:   passwordHashWithSalt,
-		CreatedAt:      time.Now(),
-	}
-
-	if err := a.db.CreateUser(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	return user, nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// AuthenticateUser authenticates a user with username and password
-func (a *AuthService) AuthenticateUser(ctx context.Context, username, password string, pubkeyEd25519, pubkeyX25519 []byte) (*Session, error) {
+// AuthenticateWithSignature validates an Ed25519 signature and authenticates the user.
+// If the user doesn't exist, a new account is automatically created (auto-registration).
+func (a *AuthService) AuthenticateWithSignature(ctx context.Context, username string, challengeB64, signatureB64 string, pubkeyEd25519, pubkeyX25519 []byte) (*Session, error) {
+	// Decode challenge and signature from base64
+	challenge, err := base64.RawURLEncoding.DecodeString(challengeB64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid challenge encoding: %w", err)
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(signatureB64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature encoding: %w", err)
+	}
+
 	usernameHash := models.HashUsername(username)
 	user, err := a.db.GetUserByUsername(ctx, usernameHash)
-	if err != nil {
-		return nil, fmt.Errorf("invalid credentials")
+
+	// Auto-register if user doesn't exist
+	if err != nil || user == nil {
+		if pubkeyEd25519 == nil || pubkeyX25519 == nil {
+			return nil, fmt.Errorf("public keys required for new account")
+		}
+
+		user = &models.User{
+			UserID:       generateUserID(),
+			UsernameHash: usernameHash,
+			PubkeyEd25519: pubkeyEd25519,
+			PubkeyX25519:  pubkeyX25519,
+			CreatedAt:     time.Now(),
+		}
+
+		if err := a.db.CreateUser(ctx, user); err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
 	}
 
-	// Extract salt from stored hash (first 16 bytes)
-	salt := user.PasswordHash[:16]
-	storedHash := user.PasswordHash[16:]
-
-	// Verify password
-	valid, err := crypto.VerifyPassword(password, storedHash, salt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify password: %w", err)
-	}
-	if !valid {
-		return nil, fmt.Errorf("invalid credentials")
+	// Verify signature using stored Ed25519 public key
+	if !crypto.Verify(challenge, signature, user.PubkeyEd25519) {
+		return nil, fmt.Errorf("invalid signature")
 	}
 
 	// Generate session token
@@ -103,16 +93,16 @@ func (a *AuthService) AuthenticateUser(ctx context.Context, username, password s
 
 	session := &Session{
 		UserID:    user.UserID,
-		Token:      sessionToken,
+		Token:     sessionToken,
 		ExpiresAt: time.Now().Add(24 * time.Hour), // 24 hour session
 	}
 
 	return session, nil
 }
 
-// AuthenticateBot authenticates a bot with API token
+// AuthenticateBot authenticates a bot with API token (TODO: implement challenge-response for bots too)
 func (a *AuthService) AuthenticateBot(ctx context.Context, token string, pubkeyEd25519, pubkeyX25519 []byte) (*Session, error) {
-	// TODO: Implement bot authentication
+	// TODO: Implement bot authentication with challenge-response
 	return nil, fmt.Errorf("bot authentication not implemented")
 }
 

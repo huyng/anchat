@@ -102,9 +102,35 @@ Content-Type: application/json
 }
 ```
 
-## Authentication Flow
+## Authentication Flow (Key-Based, Auto-Registration)
 
-### 1. Register
+AnChat uses public key authentication with Ed25519 signatures. No passwords are stored — the server only stores public keys. Accounts are automatically created on first successful authentication.
+
+### Step 1: Request Challenge
+
+```
+POST /api/v1/auth/challenge
+Content-Type: application/json
+
+{
+  "cmd": "auth_challenge",
+  "user": "alice"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "challenge": "YSB3b25kZXJmdWwgY2hhbGxlbmdl"
+}
+```
+
+The challenge is a random 32-byte value, base64url-encoded.
+
+### Step 2: Prove Key Ownership
+
+The client signs the challenge with their Ed25519 private key and sends the signature along with their public keys:
 
 ```
 POST /api/v1/auth
@@ -113,11 +139,18 @@ Content-Type: application/json
 {
   "cmd": "auth",
   "user": "alice",
-  "password": "base64_proof",
   "pubkey_ed25519": "base64...",
-  "pubkey_x25519": "base64..."
+  "pubkey_x25519": "base64...",
+  "challenge": "YSB3b25kZXJmdWwgY2hhbGxlbmdl",
+  "signature": "base64..."
 }
 ```
+
+**Fields:**
+- `pubkey_ed25519` — Required for new accounts (optional for returning users)
+- `pubkey_x25519` — Required for new accounts (optional for returning users)
+- `challenge` — The challenge from step 1
+- `signature` — Ed25519 signature of the challenge bytes
 
 **Response:**
 ```json
@@ -128,15 +161,9 @@ Content-Type: application/json
 }
 ```
 
-**Password Format:**
-- Password is sent as SCRAM-SHA-256 proof or simple challenge-response
-- Server stores Argon2id hash of password
+If the username doesn't exist, a new account is automatically created (auto-registration). Returning users simply prove they own their private key.
 
-**Public Keys:**
-- `pubkey_ed25519` — For signing messages (authentication)
-- `pubkey_x25519` — For encryption (E2E)
-
-### 2. Connect SSE Stream
+### Step 3: Connect SSE Stream
 
 ```
 GET /api/v1/listen
@@ -149,11 +176,11 @@ event: connected
 data: {"user_id":"alice_abc123"}
 ```
 
-### 3. Send Commands
+### Step 4: Send Commands
 
 All subsequent commands include the session token in the `Authorization` header.
 
-### 4. Logout
+### Step 5: Logout
 
 ```
 POST /api/v1/command
@@ -166,14 +193,29 @@ Authorization: Bearer eyJhbGc...
 
 ## Commands (Client → Server)
 
-### `auth` — Authenticate
+### `auth_challenge` — Request Authentication Challenge
+
+**Fields:**
+- `cmd` (string) — Must be `"auth_challenge"`
+- `user` (string) — Username
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "challenge": "base64url..."
+}
+```
+
+### `auth` — Authenticate (with Signature)
 
 **Fields:**
 - `cmd` (string) — Must be `"auth"`
 - `user` (string) — Username
-- `password` (string) — SCRAM-SHA-256 proof or password
-- `pubkey_ed25519` (string) — Base64-encoded Ed25519 public key
-- `pubkey_x25519` (string) — Base64-encoded X25519 public key
+- `challenge` (string) — The challenge from `auth_challenge` response
+- `signature` (string) — Ed25519 signature of the challenge
+- `pubkey_ed25519` (string) — Base64-encoded Ed25519 public key (required for new accounts)
+- `pubkey_x25519` (string) — Base64-encoded X25519 public key (required for new accounts)
 
 **Response:**
 ```json
@@ -183,6 +225,10 @@ Authorization: Bearer eyJhbGc...
   "user_id": "..."
 }
 ```
+
+**Notes:**
+- New accounts are automatically created on successful first authentication
+- Returning users omit the public key fields (stored keys are used)
 
 ### `bot_auth` — Bot Authentication
 
@@ -199,6 +245,8 @@ Authorization: Bearer eyJhbGc...
   "bot_id": "bot_42"
 }
 ```
+
+**Note:** Bot authentication using API tokens is planned but not yet implemented. Bots will also use challenge-response authentication.
 
 ### `msg` — Private Message
 
@@ -439,18 +487,24 @@ AnChat uses **NaCl box** (Curve25519 + ChaCha20-Poly1305) for E2E encryption:
 - Users compare Ed25519 public key fingerprints
 - Blind indexes used for moderation (SHA-256 of pubkeys)
 
-### Password Hashing
+### Authentication
 
-User passwords are hashed with **Argon2id** (memory-hard):
+AnChat uses challenge-response authentication with Ed25519 signatures:
 
-```
-salt = random_bytes(16)
-hash = argon2id(password, salt, time_cost=3, memory_cost=64MB, parallelism=4)
-```
+1. **Challenge Request**: Client requests a random challenge from server
+2. **Sign Challenge**: Client signs the challenge with their Ed25519 private key
+3. **Verify Signature**: Server verifies the signature using the stored Ed25519 public key
+4. **Session Token**: Server issues a session token valid for 24 hours
+
+**Security Properties:**
+- Server never sees private keys
+- No passwords to leak or hash
+- Challenges prevent replay attacks
+- Session tokens expire automatically
 
 ### Signatures
 
-Ed25519 keys are used for message signing:
+Ed25519 keys are used for message signing and authentication:
 
 ```
 signature = ed25519.Sign(privkey, message)
@@ -496,32 +550,38 @@ Example: `aGVsbG8gd29ybGQ==` → `aGVsbG8gd29ybGQ`
 ## Example Session Flow
 
 ```
-1. Client → Server: POST /api/v1/auth
-   { "cmd": "auth", "user": "alice", ... }
+1. Client → Server: POST /api/v1/auth/challenge
+   { "cmd": "auth_challenge", "user": "alice" }
 
 2. Server → Client: 200 OK
+   { "status": "ok", "challenge": "abc123..." }
+
+3. Client → Server: POST /api/v1/auth
+   { "cmd": "auth", "user": "alice", "challenge": "abc123...", "signature": "...", ... }
+
+4. Server → Client: 200 OK
    { "status": "ok", "session_token": "eyJhbGc...", "user_id": "alice_abc" }
 
-3. Client → Server: GET /api/v1/listen
+5. Client → Server: GET /api/v1/listen
    Authorization: Bearer eyJhbGc...
 
-4. Server → Client: SSE connected event
+6. Server → Client: SSE connected event
    event: connected
    data: {"user_id":"alice_abc"}
 
-5. Client → Server: POST /api/v1/command
+7. Client → Server: POST /api/v1/command
    { "cmd": "channel_join", "name": "#rust", ... }
 
-6. Server → Client (via SSE): user joined notification
+8. Server → Client (via SSE): user joined notification
    event: user_joined
    data: {"channel":"#rust","user":"alice"}
 
-7. Client → Server: POST /api/v1/command
+9. Client → Server: POST /api/v1/command
    { "cmd": "channel_send", "channel": "#rust", "ciphertext": "...", "nonce": "..." }
 
-8. Server → Client (via SSE): message to all members
-   event: channel_message
-   data: {"channel":"#rust","from":"alice","ciphertext":"...","nonce":"..."}
+10. Server → Client (via SSE): message to all members
+    event: channel_message
+    data: {"channel":"#rust","from":"alice","ciphertext":"...","nonce":"..."}
 ```
 
 ## WebSocket (Optional)
